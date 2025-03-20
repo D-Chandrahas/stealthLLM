@@ -18,7 +18,7 @@ def handle_prompt(prompt):
 
 def dummy_handle_prompt(prompt):
     sleep(2)
-    return "Dummy response for prompt: " + prompt
+    return "Dummy: " + prompt
 
 
 def canonical_wrapper(fn):
@@ -27,8 +27,9 @@ def canonical_wrapper(fn):
 
 
 def copy_hotkey_handler():
-    global clipboard
-    clipboard.append(paste())
+    global clipboard_events
+    sleep(0.1)
+    clipboard_events.append(paste())
 
 
 def key_press_handler(key):
@@ -36,60 +37,61 @@ def key_press_handler(key):
     key_events.append(key)
 
 
-def type(controller: Controller, string, duration=0.0, delay=0.0):
+def write(string, duration=0.0, delay=0.0):
+    global keyboard
     for i, character in enumerate(string):
         key = _CONTROL_CODES.get(character, character)
         try:
-            controller.press(key)
+            keyboard.press(key)
             if duration > 0.0:
                 sleep(duration)
-            controller.release(key)
+            keyboard.release(key)
             if delay > 0.0:
                 sleep(delay)
 
-        except (ValueError, controller.InvalidKeyException):
-            raise controller.InvalidCharacterException(i, character)
+        except (ValueError, keyboard.InvalidKeyException):
+            raise keyboard.InvalidCharacterException(i, character)
 
 
 def process_key_events_and_clipboard():
-    global key_events, clipboard
-    print("Key events: ", key_events)
-    print("Clipboard: ", clipboard)
+    global key_events, clipboard_events
+    
     printable_keys = {Key.space: " ", Key.enter: "\n", Key.tab: "\t"}
     chars = []
-    clip_iter = iter(clipboard)
+    clip_iter = iter(clipboard_events)
     for event in key_events:
         if type(event) is KeyCode:
-            if event.char == "\x11":
+            ascii_code = ord(event.char)
+            if ascii_code == 3:
                 chars.append(next(clip_iter, ""))
-            else:
+            elif ascii_code >= 32 and ascii_code <= 126:
                 chars.append(event.char)
         elif event in printable_keys:
             chars.append(printable_keys[event])
         elif event is Key.backspace:
             if chars: chars.pop()
     prompt = "".join(chars)
-    type(Keyboard, dummy_handle_prompt(prompt), duration=0.1, delay=0.5)
+    write(handle_prompt(prompt), duration=0.05, delay=0.2)
 
 
 
 def invoke_hotkey_handler():
-    global invoke_state, clipboard, key_events, press_callback_dispatcher, release_callback_dispatcher, \
+    global invoke_state, clipboard_events, key_events, press_callback_dispatcher, release_callback_dispatcher, \
         wrapped_copy_hotkey_press_callback, wrapped_copy_hotkey_release_callback, key_press_handler
 
     if not invoke_state:
-        clipboard = []; key_events = []
+        invoke_state = True
+        clipboard_events = []; key_events = []
 
         press_callback_dispatcher.add_callback(wrapped_copy_hotkey_press_callback)
         release_callback_dispatcher.add_callback(wrapped_copy_hotkey_release_callback)
         press_callback_dispatcher.add_callback(key_press_handler)
-        invoke_state = True
     else:
+        invoke_state = False
         press_callback_dispatcher.remove_callback(key_press_handler)
         press_callback_dispatcher.remove_callback(wrapped_copy_hotkey_press_callback)
         release_callback_dispatcher.remove_callback(wrapped_copy_hotkey_release_callback)
         process_key_events_and_clipboard()
-        invoke_state = False
 
 
 def exit_hotkey_handler():
@@ -98,8 +100,8 @@ def exit_hotkey_handler():
 
 
 def stealthllm():
-    global Keyboard
-    Keyboard = Controller()
+    global keyboard
+    keyboard = Controller()
 
     global invoke_state
     invoke_state = False
