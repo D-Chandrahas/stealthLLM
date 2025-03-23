@@ -53,27 +53,31 @@ def write(string, duration=0.0, delay=0.0):
 
 def process_key_events_and_clipboard():
     global KEY_EVENTS, CLIPBOARD_EVENTS, STATE, INTERRUPT
-
-    printable_keys = {Key.space: " ", Key.enter: "\n", Key.tab: "\t"}
-    chars = []
-    clip_iter = iter(CLIPBOARD_EVENTS)
-    for event in KEY_EVENTS:
-        if type(event) is KeyCode:
-            ascii_code = ord(event.char)
-            if ascii_code == 3:
-                chars.append(next(clip_iter, ""))
-            elif ascii_code >= 32 and ascii_code <= 126:
-                chars.append(event.char)
-        elif event in printable_keys:
-            chars.append(printable_keys[event])
-        elif event is Key.backspace:
-            if chars: chars.pop()
-    prompt = "".join(chars)
-    if prompt:
-        llm_output = handle_prompt(prompt)
-        write(llm_output, duration=0.05, delay=0.2)
-    STATE = "inactive"
-    INTERRUPT = False
+    try:
+        printable_keys = {Key.space: " ", Key.enter: "\n", Key.tab: "\t"}
+        chars = []
+        clip_iter = iter(CLIPBOARD_EVENTS)
+        for event in KEY_EVENTS:
+            if type(event) is KeyCode:
+                ascii_code = ord(event.char)
+                if ascii_code == 3:
+                    chars.append(next(clip_iter, ""))
+                elif ascii_code >= 32 and ascii_code <= 126:
+                    chars.append(event.char)
+            elif event in printable_keys:
+                chars.append(printable_keys[event])
+            elif event is Key.backspace:
+                if chars: chars.pop()
+        prompt = "".join(chars)
+        if prompt:
+            llm_output = handle_prompt(prompt)
+            llm_output = llm_output.replace("\t", "    ")
+            write(llm_output, duration=0.05, delay=0.2)
+    except Exception:
+        pass
+    finally:
+        STATE = "inactive"
+        INTERRUPT = False
 
 
 def invoke_hotkey_handler():
@@ -122,12 +126,12 @@ def stealthllm():
     WRAPPED_COPY_HOTKEY_RELEASE_CALLBACK = canonical_wrapper(copy_hotkey.release)
 
     global PRESS_CALLBACK_DISPATCHER, RELEASE_CALLBACK_DISPATCHER
-    invoke_hotkey = HotKey(HotKey.parse("<ctrl>+<shift>+q"), invoke_hotkey_handler)
     interrupt_hotkey = HotKey(HotKey.parse("<ctrl>+<alt>+q"), interrupt_hotkey_handler)
-    PRESS_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(invoke_hotkey.press),
-                                                    canonical_wrapper(interrupt_hotkey.press)))
-    RELEASE_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(invoke_hotkey.release),
-                                                      canonical_wrapper(interrupt_hotkey.release)))
+    invoke_hotkey = HotKey(HotKey.parse("<ctrl>+<shift>+q"), invoke_hotkey_handler)
+    PRESS_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(interrupt_hotkey.press),
+                                                    canonical_wrapper(invoke_hotkey.press)))
+    RELEASE_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(interrupt_hotkey.release),
+                                                      canonical_wrapper(invoke_hotkey.release)))
 
     global LISTENER
     LISTENER = Listener(on_press=PRESS_CALLBACK_DISPATCHER, on_release=RELEASE_CALLBACK_DISPATCHER)
