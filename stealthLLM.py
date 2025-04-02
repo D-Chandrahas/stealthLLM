@@ -2,8 +2,25 @@ from os import environ as env
 from time import sleep
 from threading import Thread
 from pyperclip import paste
-from pynput.keyboard import Listener, HotKey, Key, KeyCode, Controller, _CONTROL_CODES
+from pynput.keyboard import Listener, HotKey, Key, KeyCode, Controller
 import requests as req
+
+
+INTERRUPT_SHORTCUT = "<ctrl>+<alt>+q"
+INVOKE_SHORTCUT = "<ctrl>+<shift>+q"
+
+
+KEYBOARD = Controller()
+
+CONTROL_CODES = {
+    '\n': Key.enter,
+    '\r': Key.enter,
+    '\t': Key.tab,
+    '\b': Key.backspace
+}
+
+STATE = "inactive"
+INTERRUPT = False
 
 
 def handle_prompt(prompt):
@@ -33,19 +50,17 @@ def key_press_handler(key):
     KEY_EVENTS.append(key)
 
 
-def write(string, duration=0.0, delay=0.0):
-    global STATE, KEYBOARD
+def write(string, duration=0.0, delay=0.0, ignore_interrupt=False):
+    global INTERRUPT, KEYBOARD
 
     for i, character in enumerate(string):
-        if INTERRUPT: break
-        key = _CONTROL_CODES.get(character, character)
+        if not ignore_interrupt and INTERRUPT: break
+        key = CONTROL_CODES.get(character, character)
         try:
             KEYBOARD.press(key)
-            if duration > 0.0:
-                sleep(duration)
+            if duration > 0.0: sleep(duration)
             KEYBOARD.release(key)
-            if delay > 0.0:
-                sleep(delay)
+            if delay > 0.0: sleep(delay)
 
         except (ValueError, KEYBOARD.InvalidKeyException):
             raise KEYBOARD.InvalidCharacterException(i, character)
@@ -72,7 +87,7 @@ def process_key_events_and_clipboard():
         if prompt:
             llm_output = handle_prompt(prompt)
             llm_output = llm_output.replace("\t", "    ")
-            write(llm_output, duration=0.05, delay=0.2)
+            write(llm_output, duration=0.1, delay=0.1)
     except Exception:
         pass
     finally:
@@ -112,28 +127,24 @@ def interrupt_hotkey_handler():
         INTERRUPT = True
 
 
-def stealthllm():
-    global KEYBOARD
-    KEYBOARD = Controller()
-
-    global STATE, INTERRUPT
-    STATE = "inactive"
-    INTERRUPT = False
-
+def setup_globals():
     global WRAPPED_COPY_HOTKEY_PRESS_CALLBACK, WRAPPED_COPY_HOTKEY_RELEASE_CALLBACK
     copy_hotkey = HotKey(HotKey.parse("<ctrl>+c"), copy_hotkey_handler)
     WRAPPED_COPY_HOTKEY_PRESS_CALLBACK = canonical_wrapper(copy_hotkey.press)
     WRAPPED_COPY_HOTKEY_RELEASE_CALLBACK = canonical_wrapper(copy_hotkey.release)
 
     global PRESS_CALLBACK_DISPATCHER, RELEASE_CALLBACK_DISPATCHER
-    interrupt_hotkey = HotKey(HotKey.parse("<ctrl>+<alt>+q"), interrupt_hotkey_handler)
-    invoke_hotkey = HotKey(HotKey.parse("<ctrl>+<shift>+q"), invoke_hotkey_handler)
+    interrupt_hotkey = HotKey(HotKey.parse(INTERRUPT_SHORTCUT), interrupt_hotkey_handler)
+    invoke_hotkey = HotKey(HotKey.parse(INVOKE_SHORTCUT), invoke_hotkey_handler)
     PRESS_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(interrupt_hotkey.press),
                                                     canonical_wrapper(invoke_hotkey.press)))
     RELEASE_CALLBACK_DISPATCHER = CallbackDispatcher((canonical_wrapper(interrupt_hotkey.release),
                                                       canonical_wrapper(invoke_hotkey.release)))
 
-    global LISTENER
+
+def stealthllm():
+    setup_globals()
+    global LISTENER, PRESS_CALLBACK_DISPATCHER, RELEASE_CALLBACK_DISPATCHER
     LISTENER = Listener(on_press=PRESS_CALLBACK_DISPATCHER, on_release=RELEASE_CALLBACK_DISPATCHER)
     LISTENER.start()
     LISTENER.join()
